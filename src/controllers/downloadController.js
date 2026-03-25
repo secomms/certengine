@@ -1,0 +1,76 @@
+const {MktreeManagement} = require("../models/mktreeManagement");
+const {CertificationQueueManagement} = require("../models/certQueueManagement");
+
+const appLogger = require("../services/loggers/applogger");
+const {Verifier} = require("../services/transactions/verification/verifier");
+
+const {handlerSuccessRequest} = require("../responseHandlers/handlerSuccessRequest");
+const {handlerErrorRequest} = require("../responseHandlers/handlerErrorRequest");
+
+
+class DownloadController {
+    constructor() {
+        this.treeManager = new MktreeManagement();
+        this.queueManager = new CertificationQueueManagement();
+        this.verifier = new Verifier()
+    }
+
+    async downloadCertificationProof(req, res){
+        const owner = req.query.owner;
+        const ticket = req.query.ticket;
+
+        try {
+            const queueDoc = await this.queueManager.getQueue(owner, ticket);
+            if(!queueDoc){
+                return res.status(404).json(handlerErrorRequest({message:"Ticket invalid or expired"}));
+            }
+            const docsIDs = queueDoc.queue.map(item => item.id);
+
+            const hashAlgo = queueDoc.hashAlgo;
+            const proofs = await this.verifier.getAllProofs(queueDoc);
+            const fullProofs = proofs.map(((item,index) => {
+                return {id: docsIDs[index], proof: item}
+            }));
+            const blockchainData = queueDoc.blockchainData;
+
+            const result = {
+                proofs:fullProofs,
+                hashAlgo:hashAlgo,
+                blockchainName: blockchainData.blockchainName,
+                blockchainURL: blockchainData.blockchainURL,
+                transactionHash: blockchainData.transactionHash,
+                transactionTimestamp: blockchainData.transactionTimestamp
+            }
+            await this.queueManager.setReadyForDeletion(ticket, owner);
+            return res.status(200).json(handlerSuccessRequest(result));
+
+        }catch (error){
+            appLogger.error({context:{owner:owner, ticket:ticket},error:error}, 'Error while downloading proof');
+            return res.status(500).json(handlerErrorRequest({message:"Internal Server Error"}));
+        }
+
+    }
+
+    async deleteCertifiedData(req, res){
+        const owner = req.query.owner;
+        const ticket = req.query.ticket;
+
+        try{
+            const queueDoc = await this.queueManager.getQueue(owner, ticket);
+            if(!queueDoc){
+                return res.status(404).json(handlerErrorRequest({message:"Ticket invalid or expired"}));
+            }
+            await this.treeManager.deleteTree(queueDoc.treeID)
+            await this.queueManager.deleteQueue(ticket, owner);
+            return res.status(200).json(handlerSuccessRequest());
+        }catch(error){
+            appLogger.error({context:{owner:owner, ticket:ticket}, error:error},'Error while deleting certifiedData');
+            return res.status(500).json(handlerErrorRequest({message:"Internal Server Error"}));
+        }
+    }
+
+}
+
+module.exports = {
+    DownloadController
+};

@@ -1,0 +1,56 @@
+services:
+
+  mongo_certengine:
+    image: mongo:7.0
+    container_name: mongo_certengine
+    restart: always
+    ports:
+      - 27017:27017
+    networks:
+      - certengine_network
+    volumes:
+      - mongo_data:/data/db
+
+  redis_certengine:
+    image: redis:latest
+    container_name: redis_certengine
+    restart: always
+    ports:
+      - 6379:6379
+    volumes:
+      - ./redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - redis_data:/data
+    command: ['redis-server', '/usr/local/etc/redis/redis.conf']
+    networks:
+      - certengine_network
+
+  certengine:
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    volumes:
+      - ./src:/home/node/app/certengine/:ro
+    container_name: certengine
+    expose:
+      - '5001'
+    ports:
+      - 5001:5001
+    env_file:
+      - ./src/.env
+    depends_on:
+      - mongo_certengine
+      - redis_certengine
+    restart: on-failure
+    networks:
+      - certengine_network
+
+    command: node src/bin/www
+
+networks:
+  certengine_network:
+    driver: bridge
+
+
+volumes:
+  mongo_data: {}
+  redis_data: {}
