@@ -238,9 +238,48 @@ This is the preferred method for production-like environments as it handles all 
 ```bash
 docker-compose up --build -d
 ```
-## Execute specific certification test
+## Integration Test Coverage
 Run the following command
 ```bash
 npm test
 ```
+
+This integration test suite validates the complete certification lifecycle exposed by the API, ensuring that the service behaves correctly across both normal and failure scenarios.
+
+### Covered behaviors
+
+- **Account initialization**
+  - Verifies that the blockchain sender account is properly configured and exposes the required credentials.
+
+- **Certification request workflow**
+  - Verifies that the API accepts certification requests for both single documents and document batches.
+  - Confirms that each accepted request returns a valid certification ticket.
+
+- **Request cancellation**
+  - Verifies that a pending certification request can be cancelled before it is processed.
+
+- **Blockchain fee retrieval**
+  - Verifies that the API returns the gas fee parameters required to submit the certification transaction.
+
+- **Certification processing**
+  - Verifies that pending certification requests can be successfully processed and committed on-chain.
+
+- **Proof retrieval**
+  - Verifies that completed certifications can be downloaded together with their associated proof set and blockchain metadata.
+
+- **Download finalization**
+  - Verifies that proof download acknowledgement is correctly handled by the API.
+
+- **Post-download cleanup**
+  - Verifies that once a certification has been downloaded and acknowledged, it is no longer available for further retrieval.
+
+- **Positive verification path**
+  - Verifies that original certified data is successfully validated against the corresponding proof and blockchain transaction.
+
+- **Negative verification path**
+  - Verifies that tampered or mismatched data is correctly rejected during verification.
+
+- **Hashing consistency enforcement**
+  - Verifies that all certification requests within the same workflow use a consistent hashing algorithm.
+  - Confirms that requests using a different hashing algorithm are rejected.
 
