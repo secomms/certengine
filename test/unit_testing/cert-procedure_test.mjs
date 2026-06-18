@@ -109,9 +109,7 @@ describe("Certification procedure test", function () {
         }
         this.timeout(10000000);
         let api = `/api/getGasPrice`;
-        let req = {
-            address: account.address,
-        };
+        let req = {};
         let res = await agent.get(api).query(req);
         gasPrice = checkOk(res, 200);
 
@@ -133,7 +131,6 @@ describe("Certification procedure test", function () {
         let req = {
             owner: owner,
             user: user,
-            account: account,
             ticket: tickets[0],
             gasPrice: {
                 baseFee: gasPrice.baseFee,
@@ -233,7 +230,12 @@ describe("Certification procedure test", function () {
             };
             let res = await agent.post(api).send(req);
             const certInfos = checkOk(res, 200);
+
             expect(certInfos.valid).to.equal(true);
+            expect(certInfos.integrity.passed).to.equal(true);
+            expect(certInfos.integrity.reason).to.equal("OK");
+            expect(certInfos.authenticity.passed).to.equal(true);
+            expect(certInfos.authenticity.reason).to.equal("OK");
 
             if (i === 0 && print_log) {
                 console.log("api: " + api);
@@ -260,7 +262,13 @@ describe("Certification procedure test", function () {
             };
             let res = await agent.post(api).send(req);
             const certInfos = checkOk(res, 200);
+
             expect(certInfos.valid).to.equal(false);
+
+            expect(certInfos.integrity.passed).to.equal(false);
+            expect(certInfos.integrity.reason).to.equal("TAMPERED DATA");
+
+            expect(certInfos.authenticity.passed).to.equal(true);
 
             if (i === 1 && print_log) {
                 console.log("api: " + api);

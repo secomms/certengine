@@ -3,13 +3,9 @@ const {MerkleTreeRecursiveV4} = require("../utils/recursiveMerkleTree_v4");
 const appLogger = require("../services/loggers/applogger");
 
 class MktreeManagement {
-    constructor(projectName) {
-        this.database = projectName;
-
-    }
 
     async #getConnection() {
-        return await connectToDbMongo(this.database);
+        return await connectToDbMongo();
     }
 
     getMerkleTree(dataList, toBeHashedLeaves, hashAlgo){

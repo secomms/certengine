@@ -72,9 +72,7 @@ router.delete('/abortCert',
     });
 
 router.get('/getGasPrice',
-    checkExact([
-        query(["address"]).optional().isEthereumAddress()
-    ]),
+    checkExact([]),
     async (req, res, next) => {
         try{
             const result = validationResult(req);
@@ -111,17 +109,6 @@ router.get('/getTicketStatus',
 router.post('/certify',
     checkExact([
         body(['owner', 'user']).exists().isString(),
-        body('account').optional().isObject(),
-        body('account.address').optional().isEthereumAddress(),
-        body('account.privateKey').optional().isString().isHexadecimal().custom((value)=>{
-            const splitted = value.split('0x')
-            if(splitted[1].length === 64){
-                return true
-            }else{
-                throw new Error("Wrong private key format: 0x + 64 hex chars");
-            }
-
-        }),
         body('ticket').exists().isString(),
         body('gasPrice').exists().isObject(),
         body('gasPrice.baseFee').exists()
@@ -225,7 +212,7 @@ router.post('/verify',
                 return res.status(400).json(handlerErrorRequest({message:result.errors}))
             }
             const verifierController = new VerifierController();
-            await verifierController.verifyMerkleProof(req, res);
+            await verifierController.verify(req, res);
         }catch(error){
             appLogger.error({error:error}, `Error while verifying certification proof`);
             next(error);

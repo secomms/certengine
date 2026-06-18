@@ -74,7 +74,7 @@ class CertController{
 
 
     async getGasPrice(req, res){
-        const address = req.body.address ? req.body.address : await getSenderAddress()
+        const address = await getSenderAddress()
         let result;
         try {
             result = await redisClient.getPriceAndTransactions(address);
@@ -123,11 +123,13 @@ class CertController{
         const owner = req.body.owner;
         const userID = req.body.user;
         const ticket = req.body.ticket;
-        const sender = req.body.account ? req.body.account : await getSenderAccount()
+
         let gasPrice = req.body.gasPrice;
         gasPrice.baseFee = fromGweiToWei(gasPrice.baseFee)
         gasPrice.maxFeePerGas = fromGweiToWei(gasPrice.maxFeePerGas)
         gasPrice.maxPriorityFeePerGas = fromGweiToWei(gasPrice.maxPriorityFeePerGas)
+
+        const sender = await getSenderAccount()
 
         let queueDoc;
 

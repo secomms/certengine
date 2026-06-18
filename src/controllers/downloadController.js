@@ -2,7 +2,6 @@ const {MktreeManagement} = require("../models/mktreeManagement");
 const {CertificationQueueManagement} = require("../models/certQueueManagement");
 
 const appLogger = require("../services/loggers/applogger");
-const {Verifier} = require("../services/transactions/verification/verifier");
 
 const {handlerSuccessRequest} = require("../responseHandlers/handlerSuccessRequest");
 const {handlerErrorRequest} = require("../responseHandlers/handlerErrorRequest");
@@ -12,7 +11,10 @@ class DownloadController {
     constructor() {
         this.treeManager = new MktreeManagement();
         this.queueManager = new CertificationQueueManagement();
-        this.verifier = new Verifier()
+    }
+    async #getAllProofs(queueDoc){
+        const tree = await this.treeManager.getTree(queueDoc.treeID);
+        return this.treeManager.getAllProofs(tree, queueDoc.hashAlgo);
     }
 
     async downloadCertificationProof(req, res){
@@ -27,7 +29,7 @@ class DownloadController {
             const docsIDs = queueDoc.queue.map(item => item.id);
 
             const hashAlgo = queueDoc.hashAlgo;
-            const proofs = await this.verifier.getAllProofs(queueDoc);
+            const proofs = await this.#getAllProofs(queueDoc);
             const fullProofs = proofs.map(((item,index) => {
                 return {id: docsIDs[index], proof: item}
             }));
@@ -35,7 +37,7 @@ class DownloadController {
 
             const result = {
                 proofs:fullProofs,
-                hashAlgo:hashAlgo,
+                hashAlgorithm:hashAlgo,
                 blockchainName: blockchainData.blockchainName,
                 blockchainURL: blockchainData.blockchainURL,
                 transactionHash: blockchainData.transactionHash,

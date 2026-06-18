@@ -21,6 +21,6 @@ export function checkProofs(certProofs, hashAlgo) {
         expect(typeof elem.id).to.equal('string');
         expect(Array.isArray(elem.proof)).to.equal(true);
     }
-    expect(certProofs.hashAlgo).to.equal(hashAlgo);
+    expect(certProofs.hashAlgorithm).to.equal(hashAlgo);
     checkCertInfos(certProofs);
 }
