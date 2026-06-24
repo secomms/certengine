@@ -95,14 +95,15 @@ app.use(prometheusMiddleware({
 const servicesRouter = require('./routes/certRoutes');
 const statsRouter = require('./routes/statsRoutes');
 const metricsRouter = require('./routes/metricsRoutes');
+const {serviceAuth} = require("./middleware/serviceAuth");
 
-app.use('/api', [servicesRouter, statsRouter, metricsRouter]);
+
+app.use('/api', metricsRouter);
+app.use('/api', serviceAuth, [servicesRouter, statsRouter]);
 
 
-const {startCronJob} = require("./jobs/cronJobs");
 const {handlerErrorRequest} = require("./responseHandlers/handlerErrorRequest");
 
-startCronJob()
 
 /* ########################################## */
 

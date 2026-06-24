@@ -18,7 +18,7 @@ class MerkleTreeRecursiveV4 {
         if(toBeHashedLeaves){
             leavesDataHashed = [];
             for (const leave of leavesData){
-                leavesDataHashed.push(hashingMethod(hashingMethod(leave), this.hashAlgo), this.hashAlgo);
+                leavesDataHashed.push(hashingMethod(hashingMethod(leave, this.hashAlgo), this.hashAlgo));
             }
         }else{
             leavesDataHashed = leavesData;

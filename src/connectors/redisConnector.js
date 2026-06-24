@@ -2,7 +2,7 @@ const Redis = require('ioredis');
 const {getNonceFromBCForRedis} = require("../services/transactions/explorers/explorer");
 const appLogger = require("../services/loggers/applogger");
 const {configurator} = require("../config");
-const {getEthEurFromCryptocompare} = require("../services/transactions/oracols/cryptocompare");
+const {getEthEurFromService} = require("../services/transactions/oracols/price");
 
 
 let redisClient;
@@ -24,17 +24,15 @@ async function connectToRedis() {
                 appLogger.error({error:error}, 'REDIS - Error while connecting');
             });
 
-            const {eur, status} = await getEthEurFromCryptocompare()
-            await redisClient.set('cryptocompare_STATUS', status.toString())
+            const {eur, status} = await getEthEurFromService()
+            await redisClient.set('price_service_STATUS', status.toString())
             if(status){
                 await redisClient.set('from_ETH_to_EUR', eur)
             }
 
-            const sender = await configurator.getConfig('blockchain.ethSender.address')
-            const nonce = await getNonceFromBCForRedis(sender)
-            await redisClient.set(`nextNonce-${sender}`, nonce);
-            await redisClient.set(`effectiveNonce-${sender}`, nonce);
-            await redisClient.set(`concurrentTransactions-${sender}`, 0);
+            const nonce = await getNonceFromBCForRedis()
+            await redisClient.set(`nextNonce`, nonce);
+            await redisClient.set(`concurrentTransactions`, 0);
         } catch (error) {
             appLogger.error({error:error},'REDIS - Error while establishing connection');
             throw error;

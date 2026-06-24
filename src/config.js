@@ -1,10 +1,11 @@
 const dotenv = require('dotenv');
 const { resolve } = require("path");
 const { Vault } = require("./services/vault/infisicalVault");
+const appLogger = require("./services/loggers/applogger");
 
 const dotenvResult = dotenv.config({ path: resolve(__dirname, '.env') });
 if (dotenvResult.error) {
-    throw dotenvResult.error;
+    appLogger.warn('No .env file found, relying on environment variables injected at runtime');
 }
 
 class Configurator {
@@ -19,9 +20,7 @@ class Configurator {
                 main_server_url: process.env.MAIN_SERVER_URL,
             },
             projectName: process.env.PROJECT_NAME,
-            databaseMongo: {
-                connection_string: process.env.MONGO_DATABASE_CONNECTION_STRING,
-            },
+            databaseMongo: {},
             redisconf: {
                 host: process.env.REDIS_HOST,
                 port: process.env.REDIS_PORT,
@@ -49,19 +48,20 @@ class Configurator {
         } else {
             secrets = {
                 REDIS_PASSWORD: process.env.REDIS_PASSWORD,
+                MONGO_DATABASE_CONNECTION_STRING: process.env.MONGO_DATABASE_CONNECTION_STRING,
                 ETHERSCAN_KEY: process.env.ETHERSCAN_KEY,
                 OWLRACLE_KEY: process.env.OWLRACLE_KEY,
-                CRYPTOCOMPARE_KEY: process.env.CRYPTOCOMPARE_KEY,
                 SENDER_ADDR: process.env.SENDER_ADDR,
                 SENDER_PRIVKEY: process.env.SENDER_PRIVKEY,
                 RECEIVER_ADDR: process.env.RECEIVER_ADDR,
+                SERVICE_API_KEY: process.env.SERVICE_API_KEY,
             };
         }
 
         this.config.redisconf.password = secrets.REDIS_PASSWORD;
+        this.config.databaseMongo.connection_string = secrets.MONGO_DATABASE_CONNECTION_STRING;
         this.config.etherscanKey = secrets.ETHERSCAN_KEY;
         this.config.owlracleKey = secrets.OWLRACLE_KEY;
-        this.config.blockchain.cryptocompareKey = secrets.CRYPTOCOMPARE_KEY;
         this.config.blockchain.ethSender = {
             address: secrets.SENDER_ADDR,
             privateKey: secrets.SENDER_PRIVKEY
@@ -69,6 +69,7 @@ class Configurator {
         this.config.blockchain.ethReceiver = {
             address: secrets.RECEIVER_ADDR,
         };
+        this.config.serviceApiKey = secrets.SERVICE_API_KEY;
     }
 
     #getNestedConfig(obj, key) {

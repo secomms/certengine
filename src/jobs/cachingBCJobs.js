@@ -11,10 +11,12 @@ async function saveGasPrice(){
 
 async function saveNonce(){
     const concurrentTransactions = Number(await redisClient.getValue("concurrentTransactions"));
-    const nonce = await getNonceFromBCForRedis()
-    await redisClient.setValue("effectiveNonce", nonce);
+    const chainNonce = await getNonceFromBCForRedis();
     if (concurrentTransactions === 0) {
-        await redisClient.setValue("nextNonce", nonce);
+        const current = Number(await redisClient.getValue("nextNonce"));
+        if (chainNonce > current) {
+            await redisClient.setValue("nextNonce", chainNonce);
+        }
     }
 }
 

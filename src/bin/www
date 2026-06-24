@@ -6,6 +6,8 @@ const appLogger = require("../services/loggers/applogger");
 const { disconnectFromDbMongo, connectToDbMongo } = require("../connectors/mongoDBConnector");
 const { connectToRedis, disconnectFromRedis } = require("../connectors/redisConnector");
 const { checkBlockchainConnection } = require("../connectors/blockchainConnector");
+const {configurator} = require("../config");
+const {startCronJob} = require("../jobs/cronJobs");
 
 const startTime = process.hrtime.bigint();
 const port = normalizePort(process.env.CERT_ENGINE_PORT || '5001');
@@ -55,6 +57,14 @@ async function onListening() {
     await connectToDbMongo();
     await connectToRedis();
     await checkBlockchainConnection();
+
+    const apiKey = await configurator.getConfig("serviceApiKey");
+    if (!apiKey) {
+      appLogger.fatal({}, "SERVICE_API_KEY not configured: cannot start securely. Generate a secret (e.g. openssl rand -hex 32) and set it both here and in the calling backend.");
+      process.exit(1);
+    }
+
+    await startCronJob()
 
     const uptime = Number(process.hrtime.bigint() - startTime) / 1e9;
     appLogger.info(`Running on ${bind} - Boot time: ${uptime.toFixed(2)} s`);

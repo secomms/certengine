@@ -1,38 +1,34 @@
 const pino = require('pino');
 const dotenv = require("dotenv");
-const {resolve} = require("path");
+const { resolve } = require("path");
 
-const dotenvResult = dotenv.config({ path: resolve(__dirname, '..', '..',  process.env.NODE_ENV === 'prod' ? '.env' : '.env') });
+const dotenvResult = dotenv.config({ path: resolve(__dirname, '..', '..', '.env') });
 if (dotenvResult.error) {
-    throw dotenvResult.error;
+    console.warn('[CERTENGINE] No .env file found, relying on environment variables injected at runtime');
 }
 
-const transport = pino.transport({
-    targets: [
-        {
-            target: 'pino-pretty',
-            options: {
-                colorize: true,
-                ignore: 'hostname,req,res,responseTime',
-            }
-        },
-    ],
-});
+const validLevels = ['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'];
+const logLevel = validLevels.includes(process.env.LOG_LEVEL) ? process.env.LOG_LEVEL : 'info';
 
-const appLogger = pino(
-    {
-        level: process.env.LOG_LEVEL,
-        msgPrefix: '[CERTENGINE] ',
-        timestamp: pino.stdTimeFunctions.isoTime,
-        serializers: {
-            error: (err) => ({
-                message: err.message,
-                stack: err.stack,
-                name: err.name,
-            }),
-        },
+const isDev = process.env.NODE_ENV !== 'prod';
+
+const options = {
+    level: logLevel,
+    msgPrefix: '[CERTENGINE] ',
+    timestamp: pino.stdTimeFunctions.isoTime,
+    serializers: {
+        error: (err) => ({ message: err.message, stack: err.stack, name: err.name }),
     },
-    transport
-);
+};
+
+const appLogger = isDev
+    ? pino({
+        ...options,
+        transport: {
+            target: 'pino-pretty',
+            options: { colorize: true, ignore: 'hostname,req,res,responseTime' },
+        },
+    })
+    : pino(options);
 
 module.exports = appLogger;

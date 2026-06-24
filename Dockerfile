@@ -4,7 +4,12 @@ WORKDIR /home/node/app/
 
 COPY ./package*.json ./
 
-RUN npm install --include=dev
+ARG NODE_ENV=production
+RUN if [ "$NODE_ENV" = "production" ]; then \
+      npm ci --omit=dev; \
+    else \
+      npm ci; \
+    fi
 
 COPY . .
 

@@ -6,7 +6,7 @@ const {VerifierController} = require("../controllers/verifierController");
 const { query, body, validationResult, checkExact} = require('express-validator');
 const {handlerErrorRequest} = require("../responseHandlers/handlerErrorRequest");
 const appLogger = require("../services/loggers/applogger");
-const {validateGasFee} = require("./validators/otherValidators");
+const {validateGasFee, validateHashAlgorithm} = require("./validators/otherValidators");
 
 const router = express.Router();
 
@@ -35,7 +35,7 @@ router.post('/requestCert',
             }
 
         ),
-        body('hashAlgorithm').optional().isString()
+        body('hashAlgorithm').optional().isString().custom(validateHashAlgorithm)
     ]),
     async (req, res, next) => {
         try{
@@ -55,6 +55,7 @@ router.post('/requestCert',
 router.delete('/abortCert',
     checkExact([
         query(['owner', 'ticket']).exists().isString(),
+        query('ticket').isMongoId(),
         query('id').exists().isString()
     ]),
     async (req, res, next) => {
@@ -90,6 +91,7 @@ router.get('/getGasPrice',
 router.get('/getTicketStatus',
     checkExact([
         query(['owner', 'ticket']).exists().isString(),
+        query('ticket').isMongoId(),
     ]),
 
     async (req, res, next) => {
@@ -109,7 +111,7 @@ router.get('/getTicketStatus',
 router.post('/certify',
     checkExact([
         body(['owner', 'user']).exists().isString(),
-        body('ticket').exists().isString(),
+        body('ticket').exists().isString().isMongoId(),
         body('gasPrice').exists().isObject(),
         body('gasPrice.baseFee').exists()
             .custom(value => {
@@ -142,7 +144,8 @@ router.post('/certify',
 
 router.get('/downloadCert',
     checkExact([
-        query(['owner', 'ticket']).exists().isString()
+        query(['owner', 'ticket']).exists().isString(),
+        query('ticket').isMongoId(),
     ]),
     async (req, res, next) => {
         try{
@@ -160,7 +163,8 @@ router.get('/downloadCert',
 
 router.delete('/ackDownload',
     checkExact([
-        query(['owner', 'ticket']).exists().isString()
+        query(['owner', 'ticket']).exists().isString(),
+        query('ticket').isMongoId(),
     ]),
     async (req, res, next) => {
         try{
@@ -187,14 +191,12 @@ router.post('/verify',
                     throw new Error("Wrong format of proof field. It must be stringified before sending it");
                 }
                 }),
-        body('transactionHash').exists().isString().custom((value)=>{
-                const splitted = value.split('0x')
-                if(splitted[1].length === 64){
-                    return true
-                }else{
-                    throw new Error("Wrong transaction hash format: 0x + 64 hex chars");
-                }
-            }),
+        body('transactionHash')
+            .exists().withMessage('transactionHash is required')
+            .isString()
+            .matches(/^0x[0-9a-fA-F]{64}$/).withMessage('transactionHash must be a 0x-prefixed 32-byte hex string'),
+
+
         body('data').exists().custom((value) =>{
             if(Array.isArray(value)){
                 return true
@@ -203,7 +205,7 @@ router.post('/verify',
             }
         }),
         body('blockchainURL').exists().isURL(),
-        body('hashAlgorithm').optional().isString()
+        body('hashAlgorithm').optional().isString().custom(validateHashAlgorithm)
     ]),
     async (req, res, next) => {
         try{

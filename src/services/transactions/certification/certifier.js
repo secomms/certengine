@@ -2,7 +2,7 @@ const {connectToBlockchain, getBlockchainNameAndUrl} = require("../../../connect
 const redisClient = require("../../redis/redisClient");
 const {getSignedTransaction} = require("./transactionMaker");
 const {dateFormatting} = require("../../../utils/common");
-const {trasformInEur, fromWeiToGwei} = require("../oracols/common");
+const {transformInEur, fromWeiToGwei} = require("../oracols/common");
 const appLogger = require("../../loggers/applogger");
 
 
@@ -10,10 +10,16 @@ function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function getNonceFromRedis(address){
-    let actualNonce = await redisClient.getValue(`nextNonce-${address}`);
-    await redisClient.setValue(`nextNonce-${address}`, Number(actualNonce)+1);
-    return Number(actualNonce);
+function bumpGasPrice(price, factor = 0.15) {
+    return {
+        ...price,
+        maxPriorityFeePerGas: Math.ceil(Number(price.maxPriorityFeePerGas) * (1 + factor)),
+        maxFeePerGas: Math.ceil(Number(price.maxFeePerGas) * (1 + factor)),
+    };
+}
+
+async function getNonceFromRedis(){
+    return await redisClient.incrementAndGetNonce();
 }
 
 
@@ -23,23 +29,23 @@ async function transact(data, nonce, price, sender){
 
     const currentDate = new Date();
     let ts = dateFormatting(currentDate);
-    const signedTx = await getSignedTransaction(data, nonce, price, sender)
     let retry = 0
     while(retry < futureTransactionRetries && retry !== -1){
         appLogger.debug(undefined,`nonce ${nonce} - retry ${retry}`)
         try{
+            const signedTx = await getSignedTransaction(data, nonce, price, sender)
             let receipt = await web3.eth.sendSignedTransaction(signedTx.rawTransaction);
             const transactionHash = receipt.transactionHash
             const effectiveGasPrice = Number(receipt.effectiveGasPrice)
             const gasUsed = Number(receipt.gasUsed)
             const {name, url} = await getBlockchainNameAndUrl()
-            let {eur: eur, status:status} = await redisClient.getEURfromRedis() //getEUR();
+            let {eur: eur, status:status} = await redisClient.getEURfromRedis()
             return {
                 blockchainURL: url,
                 blockchainName: name,
                 transactionHash: transactionHash,
                 transactionTimestamp: ts,
-                priceEUR: await trasformInEur(fromWeiToGwei(effectiveGasPrice), gasUsed, eur),
+                priceEUR: await transformInEur(fromWeiToGwei(effectiveGasPrice), gasUsed, eur),
                 wallet: sender.address
             }
         }catch (e) {
@@ -48,12 +54,12 @@ async function transact(data, nonce, price, sender){
                 const errorMessage = e.cause.message;
                 if (errorMessage === 'replacement transaction underpriced') {
                     await sleep(5000);
+                    price = bumpGasPrice(price);
                     retry++;
                 }
                 if (errorMessage.startsWith('nonce too low')) {
                     await sleep(5000);
-                    await redisClient.recoverNonce(sender.address);
-                    nonce = await redisClient.getValue(`nextNonce-${sender.address}`);
+                    nonce = Number(await web3.eth.getTransactionCount(sender.address, 'pending'));
                     retry++;
                 }
                 if (errorMessage === 'transaction underpriced') {
@@ -70,24 +76,24 @@ async function transact(data, nonce, price, sender){
 async function transactOnBC(data, gasPrice, sender){
     let receipt = null;
     let nonce;
+    let incremented = false;
     try{
-        await redisClient.blindIncrement(`concurrentTransactions-${sender.address}`);
-        nonce = await getNonceFromRedis(sender.address)
+        incremented = await redisClient.blindIncrement(`concurrentTransactions`);
+        nonce = await getNonceFromRedis();
         appLogger.debug(`nonce: ${nonce} - merkle root: ${data}`);
-        receipt = await transact(data, nonce, gasPrice, sender)
-        if(receipt){
-            await redisClient.blindDecrement(`concurrentTransactions-${sender.address}`);
-        }else{
+        receipt = await transact(data, nonce, gasPrice, sender);
+        if(!receipt){
             throw new Error("Transaction failed with nonce " + nonce);
         }
-
+        return receipt;
     } catch (error) {
-        appLogger.error({context:{price:gasPrice}, error:error},'Certifier - Error while sending the transaction');
-        await redisClient.blindDecrement(`concurrentTransactions-${sender.address}`);
+        appLogger.error({context:{price:gasPrice}, error}, 'Certifier - Error while sending the transaction');
         throw error;
+    } finally {
+        if (incremented) {
+            await redisClient.blindDecrement(`concurrentTransactions`);
+        }
     }
-
-    return receipt;
 }
 
 module.exports = {transactOnBC}

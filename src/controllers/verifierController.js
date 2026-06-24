@@ -50,7 +50,7 @@ class VerifierController {
         try{
             const transactionData = await this.#getTransactionDataFromBC(txHash, blockchainURL);
             if (!transactionData) {
-                return res.status(400).json(handlerErrorRequest({error: 'Transaction not found'}));
+                return res.status(400).json(handlerErrorRequest({message: 'Transaction not found'}));
             }
             const integrity = verifyMerkle(data, transactionData.merkleRoot, bcInfo);
             result.integrity = { passed: integrity, reason: integrity ? "OK" : "TAMPERED DATA" };
@@ -59,8 +59,8 @@ class VerifierController {
             result.authenticity = {passed: authenticity, reason: authenticity ? "OK" : "ISSUER NOT AUTHORIZED" };
 
 
-            const virdict = integrity && authenticity
-            return res.status(200).json(handlerSuccessRequest({valid: virdict, integrity: result.integrity, authenticity: result.authenticity}));
+            const verdict = integrity && authenticity
+            return res.status(200).json(handlerSuccessRequest({valid: verdict, integrity: result.integrity, authenticity: result.authenticity}));
 
         }catch (error) {
             appLogger.error({context:{bcInfo:bcInfo}, error:error}, "Error while verifying certification proof");

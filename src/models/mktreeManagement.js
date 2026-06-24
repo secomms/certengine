@@ -96,10 +96,7 @@ class MktreeManagement {
 
         try {
             for (let leaf of tree.leavesIndexes) {
-                const proof = merkleTools.getMerkleProof([leaf]);
-                if (proofs.indexOf(proof) === -1) {
-                    proofs.push(proof);
-                }
+                proofs.push(merkleTools.getMerkleProof([leaf]));
             }
         }catch(error){
             appLogger.error({error:error},`Error while trying to get all the proofs from the merkle tree`);

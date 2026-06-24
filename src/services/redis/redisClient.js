@@ -1,14 +1,14 @@
 const {connectToRedis} = require("../../connectors/redisConnector");
 const {default: Redlock} = require("redlock");
 const appLogger = require("../loggers/applogger");
-const {getEthEurFromCryptocompare} = require("../transactions/oracols/cryptocompare");
+const {getEthEurFromService} = require("../transactions/oracols/price");
 
 
 class RedisClient {
     constructor() {
         this.redlock = null
         this.lockedKeys = [
-            "nextNonce","effectiveNonce",
+            "nextNonce",
             "concurrentTransactions",
             "suggestedTransactionPrice"
         ];
@@ -68,7 +68,8 @@ class RedisClient {
                     await this.unlockKey(lock);
                 }
             } catch (error) {
-            appLogger.error({context:{key: key}, error:error},`REDIS - Error while updating data with locking`);
+                appLogger.error({context:{key: key}, error:error},`REDIS - Error while updating data with locking`);
+                throw error;
             }
         }else{
             await client.set(key, value);
@@ -94,6 +95,7 @@ class RedisClient {
                 }
             } catch (error) {
                 appLogger.error({context:{key: key}, error:error},`REDIS - Error while reading with locking`);
+                throw error;
             }
         }else{
             return await client.get(key)
@@ -104,27 +106,32 @@ class RedisClient {
      * @param key {string}
      */
     async blindIncrement(key){
-        const client = await this.#connect()
-
+        const client = await this.#connect();
         if(this.lockedKeys.some(lockedKey => key.startsWith(lockedKey))){
             try{
-                if(!this.redlock){
-                    await this.#initRedlock(client)
-                }
-                const lock = await this.lockKey(key)
+                if(!this.redlock){ await this.#initRedlock(client); }
+                const lock = await this.lockKey(key);
                 try {
                     const v = Number(await client.get(key));
-                    await client.set(key, v+1);
-                    appLogger.debug(undefined,"REDIS - concurrent transactions: " + (v+1))
+                    await client.set(key, v + 1);
+                    appLogger.debug(undefined, "REDIS - concurrent transactions: " + (v + 1));
                 } finally {
                     await this.unlockKey(lock);
                 }
+                return true;
             } catch (error) {
-                appLogger.error({context:{key: key}, error:error},`REDIS - Error while blindly increment with locking`);
+                appLogger.error({context:{key}, error}, `REDIS - Error while blindly incrementing with locking`);
+                return false;
             }
-        }else{
-            const v = Number(await client.get(key));
-            await client.set(key, v+1);
+        } else {
+            try {
+                const v = Number(await client.get(key));
+                await client.set(key, v + 1);
+                return true;
+            } catch (error) {
+                appLogger.error({context:{key}, error}, `REDIS - Error while blindly incrementing`);
+                return false;
+            }
         }
     }
 
@@ -133,32 +140,37 @@ class RedisClient {
      * @param key {string}
      */
     async blindDecrement(key){
-        const client = await this.#connect()
-
+        const client = await this.#connect();
         if(this.lockedKeys.some(lockedKey => key.startsWith(lockedKey))){
             try{
-                if(!this.redlock){
-                    await this.#initRedlock(client)
-                }
-                const lock = await this.lockKey(key)
+                if(!this.redlock){ await this.#initRedlock(client); }
+                const lock = await this.lockKey(key);
                 try {
                     const v = Number(await client.get(key));
-                    await client.set(key, v-1);
-                    appLogger.debug(undefined,"REDIS - concurrent transactions: " + (v-1))
+                    await client.set(key, Math.max(0, v - 1));
+                    appLogger.debug(undefined, "REDIS - concurrent transactions: " + Math.max(0, v - 1));
                 } finally {
                     await this.unlockKey(lock);
                 }
+                return true;
             } catch (error) {
-                appLogger.error({context:{key: key}, error:error},`REDIS - Error while blindly decrementing with locking`);
+                appLogger.error({context:{key}, error}, `REDIS - Error while blindly decrementing with locking`);
+                return false;
             }
-        }else{
-            const v = Number(await client.get(key));
-            await client.set(key, v-1);
+        } else {
+            try {
+                const v = Number(await client.get(key));
+                await client.set(key, Math.max(0, v - 1));
+                return true;
+            } catch (error) {
+                appLogger.error({context:{key}, error}, `REDIS - Error while blindly decrementing`);
+                return false;
+            }
         }
     }
 
 
-    async getPriceAndTransactions(address){
+    async getPriceAndTransactions(){
         let price;
         let transactions;
         const client = await this.#connect()
@@ -166,10 +178,10 @@ class RedisClient {
             if(!this.redlock){
                 await this.#initRedlock(client)
             }
-            const lock =  await this.redlock.acquire([`lock:concurrentTransactions-${address}`, `lock:suggestedTransactionPrice`], 5000);
+            const lock =  await this.redlock.acquire([`lock:concurrentTransactions`, `lock:suggestedTransactionPrice`], 5000);
             try {
                 price = JSON.parse(await client.get(`suggestedTransactionPrice`));
-                transactions = Number(await client.get(`concurrentTransactions-${address}`));
+                transactions = Number(await client.get(`concurrentTransactions`));
             }finally {
                 await this.unlockKey(lock);
             }
@@ -182,27 +194,26 @@ class RedisClient {
         }
     }
 
-    async recoverNonce(address){
+    async incrementAndGetNonce(){
         const client = await this.#connect()
-        try{
-            if(!this.redlock){
-                await this.#initRedlock(client)
-            }
-            const lock =  await this.redlock.acquire([`lock:effectiveNonce-${address}`, `lock:nextNonce-${address}`], 5000);
-            try {
-                const trueNonce = Number(await client.get(`effectiveNonce-${address}`));
-                await client.set(`nextNonce-${address}`, trueNonce)
-            }finally {
-                await this.unlockKey(lock);
-            }
-        }catch (error) {
-            appLogger.error({error:error},`REDIS - Error while trying to recover the nonce`);
+        const key = `nextNonce`;
+        if(!this.redlock){
+            await this.#initRedlock(client)
+        }
+        const lock = await this.lockKey(key)
+        try {
+            const current = Number(await client.get(key));
+            await client.set(key, current + 1);
+            return current;
+        } finally {
+            await this.unlockKey(lock);
         }
     }
+
     async saveOnRedisETHtoEUR(){
         const client = await this.#connect()
-        let {eur, status} = await getEthEurFromCryptocompare()
-        await client.set('cryptocompare_STATUS', status.toString())
+        let {eur, status} = await getEthEurFromService()
+        await client.set('price_service_STATUS', status.toString())
         if(status){
             await client.set('from_ETH_to_EUR', eur)
         }
@@ -212,7 +223,7 @@ class RedisClient {
         const client = await this.#connect()
         let eur, status;
         eur = Number(await client.get('from_ETH_to_EUR'))
-        status = await client.get('cryptocompare_STATUS')
+        status = await client.get('price_service_STATUS')
         status = status === 'true';
         return {eur: eur, status:status}
     }

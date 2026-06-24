@@ -18,9 +18,9 @@ async function owlracolGasPriceOracol(){
 
         const result = response.data.speeds[0];
 
-        const baseFee = result.baseFee;
-        const maxPriorityFeePerGas = result.maxPriorityFeePerGas;
-        const maxFeePerGas = result.maxFeePerGas;
+        const baseFee = Number(result.baseFee);
+        const maxPriorityFeePerGas = Number(result.maxPriorityFeePerGas);
+        const maxFeePerGas = Number(result.maxFeePerGas);
 
         return {
             baseFee: baseFee,
@@ -29,8 +29,13 @@ async function owlracolGasPriceOracol(){
             estimatedTime: await estimateTransactionTime(fromGweiToWei(baseFee+maxPriorityFeePerGas))
         }
 
-    } catch (error) {
-        appLogger.error({error:error}, "Oracol - Error while asking to Owlracle");
+    } catch (e) {
+        if (e?.response?.status >= 500 || e.code === 'ECONNABORTED' || e.code === 'ETIMEDOUT') {
+            appLogger.warn({ provider: 'owlracle', status: e?.response?.status },
+                'Owlracle - Gas oracle temporarily unavailable, falling back');
+        } else {
+            appLogger.error({ error: e }, 'Oracol - Unexpected error while asking Owlracle');
+        }
         return null
     }
 }

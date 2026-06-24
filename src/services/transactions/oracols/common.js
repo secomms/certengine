@@ -1,23 +1,38 @@
 const axios = require("axios");
 const {configurator} = require("../../../config");
 const {getGas} = require("../../../connectors/blockchainConnector");
+const appLogger = require("../../loggers/applogger");
 
 
 async function estimateTransactionTime(weiGasPrice) {
-    const apiKey = await configurator.getConfig('etherscanKey')
+    try {
+        const apiKey = await configurator.getConfig('etherscanKey');
+        const { data } = await axios.get('https://api.etherscan.io/v2/api', {
+            params: {chainid: 1, module: 'gastracker', action: 'gasestimate', gasprice: weiGasPrice, apikey: apiKey}
+        });
 
-    const response = await axios.get(`https://api.etherscan.io/v2/api?chainid=1&module=gastracker&action=gasestimate&gasprice=${weiGasPrice}&apikey=${apiKey}`)
-    if(response.status === 200) {
-        const secs = Number(response.data.result)
+        const secs = Number(data?.result);
+
+        if (!Number.isFinite(secs)) {
+            throw new Error(`Invalid gas estimate response: ${data?.result}`);
+        }
+
         const minutes = Math.floor(secs / 60);
-        const remainingSeconds = secs % 60;
-        return `${minutes} min : ${remainingSeconds} sec`;
-    }else{
-        return undefined
+        const seconds = secs % 60;
+
+        return {
+            seconds: secs,
+            minutes,
+            formatted: `${minutes} min : ${seconds} sec`
+        };
+
+    } catch (err) {
+        appLogger.error({error:err}, "Etherscan gas estimate failed");
+        return null;
     }
 }
 
-async function trasformInEur(gweiPrice, effectiveGas, eur) {
+async function transformInEur(gweiPrice, effectiveGas, eur) {
     const gas = effectiveGas || await getGas()
     const etherPrice = (gweiPrice*gas)/1000000000;
     return etherPrice*eur;
@@ -35,7 +50,7 @@ function fromGweiToEth(gwei){
 }
 
 module.exports = {
-    trasformInEur,
+    transformInEur,
     estimateTransactionTime,
     fromGweiToWei,
     fromWeiToGwei,

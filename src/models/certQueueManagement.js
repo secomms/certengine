@@ -78,27 +78,28 @@ class CertQueueManagement {
     }
 
     /**
-     * Function that retrieves the oldest certification waiting queue still open for new document to be certified.
-     * For such queue document, it returns only the data queue in order to append to it new certification requests.
+     * Function that locks an existing queue in order to stop appending new certification requests,
+     * because the system is ready to make a transaction
      *
-     * @returns the object {queue: [doc0, docN]}
+     * @param owner owner of the ticket
+     * @param ticket queue document ID
+     * @returns the locked queue
      */
-    async getUnlockedQueue(owner, ticket){
+    async lockAndGetQueue(owner, ticket){
         let connection;
-        let queryResult;
         try{
             connection = await this.#getConnection();
             let collection = await connection.collection("Queue");
             const nid = new ObjectId(ticket)
-            let filter = owner ? {"_id": nid, "owner":owner, "locked": false} : {"locked": false};
+            const filter = {"_id": nid, "owner": owner, "locked": false};
+            const update = {$set: {locked: true}};
 
-            queryResult = await collection.findOne(filter);
-
+            return await collection.findOneAndUpdate(filter, update,
+                {returnDocument: "after", includeResultMetadata: false});
         } catch (error) {
-            appLogger.error({context:{owner:owner, ticket: ticket}, error:error},`Error while getting the unlocked queue`);
+            appLogger.error({context:{owner:owner, ticket: ticket}, error:error},`Error while locking the queue`);
             throw error;
         }
-        return queryResult;
     }
 
     /**
@@ -115,65 +116,52 @@ class CertQueueManagement {
      */
     async appendDocumentsToQueue(data, owner, algo){
         let connection;
-        let ticket, queueDoc;
+        let queueDoc;
+        const MAX_RETRIES = 3;
 
         try {
             connection = await this.#getConnection();
             let collection = await connection.collection("Queue");
 
-            queueDoc = await collection.findOne({"owner": owner, "locked": false});
+            for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+                queueDoc = await collection.findOne({"owner": owner, "locked": false});
 
-            if (!queueDoc) {
-                const newQueueID = await this.createNewTransactionQueue(undefined, owner, algo);
-                queueDoc = await collection.findOne({"_id": newQueueID});
+                if (!queueDoc) {
+                    const newQueueID = await this.createNewTransactionQueue(undefined, owner, algo);
+                    queueDoc = await collection.findOne({"_id": newQueueID});
+                }
+                if (queueDoc.hashAlgo !== algo) {
+                    throw new TypeError(`You already uploaded one or more data requesting ${queueDoc.hashAlgo} as hash algorithm. Now you must continue to use it!`)
+                }
+
+                const existingIds = new Set(queueDoc.queue.map(item => item.id));
+                const seen = new Set();
+                const newItems = data.filter(d => {
+                    if (existingIds.has(d.id) || seen.has(d.id)) return false;
+                    seen.add(d.id);
+                    return true;
+                });
+
+                if (newItems.length === 0) {
+                    appLogger.info({context:{owner, ticket: queueDoc._id.toString()}}, "Documents you asked to certify are already present!");
+                    return queueDoc._id.toString();
+                }
+
+                const newIds = newItems.map(item => item.id);
+                const filter = {"_id": queueDoc._id, "locked": false, "queue.id": {$nin: newIds}};
+                const update = {$push: {queue: {$each: newItems}}};
+                const res = await collection.updateOne(filter, update);
+
+                if (res.matchedCount === 1) {
+                    return queueDoc._id.toString();
+                }
+                appLogger.warn({context:{owner, ticket: queueDoc._id.toString()}}, "Queue locked or modified during append, retrying");
             }
-            if (queueDoc.hashAlgo !== algo) {
-                throw new TypeError(`You already uploaded one or more data requesting ${queueDoc.hashAlgo} as hash algorithm. Now you must continue to use it!`)
-            }
 
-            let editedQueue = queueDoc.queue.concat(data)
-
-            editedQueue = editedQueue.filter((value, index, self) =>
-                index === self.findIndex((obj) => obj.id === value.id)
-            );
-
-            if (editedQueue.length !== queueDoc.queue.length) {
-                const filter = {"_id": queueDoc._id};
-                const update = {$set: {["queue"]: editedQueue}};
-                await collection.updateOne(filter, update);
-                ticket = queueDoc._id.toString();
-            } else {
-                ticket = queueDoc._id.toString();
-                appLogger.error({}, "Documents you asked to certify are already present!");
-            }
-
-        }catch (error){
-            appLogger.error({context:{owner:owner, ticket: ticket},error:error},`Error while adding documents to the queue`);
-            throw error;
-        }
-
-        return ticket
-    }
-
-
-    /**
-     * Function that locks an existing queue in order to stop appending new certification requests,
-     * because the system is ready to make a transaction
-     *
-     * @param queueID queue document ID
-     */
-    async lockQueue(queueID){
-        let connection;
-        try{
-            connection = await this.#getConnection();
-            let collection = await connection.collection('Queue');
-
-            const filter = {"_id": queueID};
-            const update = {$set: {locked: true}};
-            await collection.updateOne(filter, update);
+            throw new Error(`Could not append documents for owner ${owner}: queue kept getting locked`);
 
         } catch (error) {
-            appLogger.error({context:{ticket:queueID}, error:error},`Error while trying to lock the queue`);
+            appLogger.error({context:{owner: owner, ticket: queueDoc?._id?.toString()}, error: error}, `Error while adding documents to the queue`);
             throw error;
         }
     }
@@ -260,7 +248,8 @@ class CertQueueManagement {
             connection = await this.#getConnection();
             let collection = await connection.collection("Queue");
             const nid = new ObjectId(queueID);
-            let queueDoc = await collection.findOne({_id: nid, owner: owner});
+            let queueDoc = await collection.findOne({_id: nid, owner: owner, locked: false});
+
             const isDocIDPresent = queueDoc.queue.some(elem => elem.id === dataID);
 
             if (isDocIDPresent) {
@@ -275,7 +264,7 @@ class CertQueueManagement {
                 }
 
             } else {
-                appLogger.log(`${dataID} doesn't exist.`);
+                appLogger.info(`${dataID} doesn't exist.`);
             }
 
         } catch (error) {
@@ -306,13 +295,8 @@ class CertQueueManagement {
             let collection = await connection.collection("Queue");
             const nid = new ObjectId(queueID);
             const filter = {"_id": nid, owner:owner};
-            const updates = [
-                { $set: { "treeID": treeID } },
-                { $set: { "blockchainData": blockchainData } }
-            ];
-            for(let up of updates){
-                await collection.updateOne(filter, up);
-            }
+            const update = { $set: { treeID: treeID, blockchainData: blockchainData } };
+            await collection.updateOne(filter, update);
 
         } catch (error) {
             appLogger.error({context:{owner:owner, ticket:queueID}, error:error},`Error while trying to add certification infos to a queue`);
@@ -323,6 +307,4 @@ class CertQueueManagement {
 
 }
 
-module.exports = {
-    CertificationQueueManagement: CertQueueManagement
-}
+module.exports = {CertQueueManagement}

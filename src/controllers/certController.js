@@ -1,4 +1,4 @@
-const {CertificationQueueManagement} = require("../models/certQueueManagement");
+const {CertQueueManagement} = require("../models/certQueueManagement");
 const {MktreeManagement} = require("../models/mktreeManagement");
 
 const {transactOnBC} = require("../services/transactions/certification/certifier");
@@ -11,13 +11,13 @@ const {handlerSuccessRequest} = require("../responseHandlers/handlerSuccessReque
 const {handlerErrorRequest} = require("../responseHandlers/handlerErrorRequest");
 const {hashingMethod} = require("../utils/common");
 const {StatsManagement} = require("../models/statsManagement");
-const {getSenderAddress, getSenderAccount} = require("../connectors/blockchainConnector");
+const {getSenderAccount} = require("../connectors/blockchainConnector");
 
 
 
 class CertController{
     constructor(){
-        this.queueManager = new CertificationQueueManagement();
+        this.queueManager = new CertQueueManagement();
         this.treeManager = new MktreeManagement();
         this.statsManager = new StatsManagement();
     }
@@ -64,6 +64,13 @@ class CertController{
         const dataID = req.query.id;
         const ticket = req.query.ticket;
         try {
+            let queue = await this.queueManager.getQueue(owner, ticket)
+            if(!queue){
+                return res.status(404).json(handlerErrorRequest({message:"Not found"}));
+            }
+            if(queue.locked){
+                return res.status(400).json(handlerErrorRequest({message:"Operation not permitted. Certification procedure already started"}));
+            }
             await this.queueManager.dropDocumentFromQueue(owner, dataID, ticket);
             return res.status(200).json(handlerSuccessRequest());
         } catch (error) {
@@ -74,10 +81,9 @@ class CertController{
 
 
     async getGasPrice(req, res){
-        const address = await getSenderAddress()
         let result;
         try {
-            result = await redisClient.getPriceAndTransactions(address);
+            result = await redisClient.getPriceAndTransactions();
             if(!result){
                 return res.status(500).json(handlerErrorRequest({message:"Error while fetching gas prices"}));
             }
@@ -132,13 +138,14 @@ class CertController{
         const sender = await getSenderAccount()
 
         let queueDoc;
+        let transactionData=null;
+        let treeID
 
         try{
-            queueDoc = await this.queueManager.getUnlockedQueue(owner, ticket);
+            queueDoc = await this.queueManager.lockAndGetQueue(owner, ticket);
             if(!queueDoc){
-                return res.status(404).json(handlerErrorRequest({message:"Waiting queue not found!"}));
+                return res.status(409).json(handlerErrorRequest({message:"Queue not found or certification already in progress"}));
             }
-            await this.queueManager.lockQueue(queueDoc._id);
             let leaves = queueDoc.queue.map(item => item.data);
             if(leaves.length === 0){
                 await this.queueManager.unlockQueue(queueDoc._id)
@@ -148,26 +155,42 @@ class CertController{
             const hashAlgo = queueDoc.hashAlgo;
             let tree = this.treeManager.getMerkleTree(leaves, false, hashAlgo);
             const root = tree.getMerkleRoot();
+            treeID = await this.treeManager.saveTree(tree);
 
-            let transactionData;
+
             transactionData = await transactOnBC(root, gasPrice, sender)
-            if(!transactionData){
-                return res.status(400).json(handlerErrorRequest({message:"Data could not be certified"}));
-            }
             transactionData['userID'] = userID;
-            const treeID = await this.treeManager.saveTree(tree);
 
             await this.queueManager.addCertInfoToClosedQueue(ticket, owner, treeID, transactionData)
-            await this.statsManager.addTransactionToHistory(transactionData, owner, sender.address)
+
+            try {
+                await this.statsManager.addTransactionToHistory(transactionData, owner, sender.address);
+            } catch (statsErr) {
+                appLogger.error({context:{owner, ticket}, error:statsErr}, "Certification persisted, stats update failed (non-fatal)");
+            }
+
+
             return res.status(200).json(handlerSuccessRequest(transactionData));
 
         }catch (error) {
             appLogger.error({context: {owner:owner, ticket:ticket, gasPrice:gasPrice}, error:error}, "Error while trying to certify documents");
-            if(queueDoc){
-                await this.queueManager.unlockQueue(queueDoc._id);
-                if(error.name === "InvalidGasOrGasPrice"){
-                    return res.status(400).json(handlerErrorRequest({message:"Insufficient Gas given"}));
+            if (transactionData) {
+                try {
+                    await this.queueManager.addCertInfoToClosedQueue(ticket, owner, treeID, transactionData);
+                } catch (persistErr) {
+                    appLogger.fatal({context:{owner, ticket, txHash: transactionData.transactionHash, treeID}, error:persistErr},
+                        "CRITICAL: on-chain certification succeeded but could not be linked to the queue. Manual reconciliation needed.");
                 }
+                return res.status(200).json(handlerSuccessRequest(transactionData));
+            }
+            if (queueDoc) {
+                await this.queueManager.unlockQueue(queueDoc._id);
+            }
+            if (treeID) {
+                await this.treeManager.deleteTree(treeID);
+            }
+            if (error.name === "InvalidGasOrGasPrice") {
+                return res.status(400).json(handlerErrorRequest({message:"Insufficient Gas given"}));
             }
             return res.status(500).json(handlerErrorRequest({message:"Internal Server Error"}));
         }

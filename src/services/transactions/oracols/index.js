@@ -1,7 +1,7 @@
-const {getBlockchainNameAndUrl, getGas} = require("../../../connectors/blockchainConnector");
+const {getBlockchainNameAndUrl} = require("../../../connectors/blockchainConnector");
 const {etherscanGasPriceOracol} = require("./etherscan");
 const {owlracolGasPriceOracol} = require("./owlracol");
-const {trasformInEur, estimateTransactionTime, fromGweiToWei} = require("./common");
+const {transformInEur, estimateTransactionTime, fromGweiToWei} = require("./common");
 const appLogger = require("../../loggers/applogger");
 const redisClient = require("../../redis/redisClient");
 
@@ -11,13 +11,13 @@ async function getAdjustedGasPriceBasedOnTransactionsConcurrency(price, concurre
     let baseFee = price.baseFee
     let maxPriorityFeePerGas = price.maxPriorityFeePerGas;
     let maxFeePerGas = price.maxFeePerGas;
-    let {eur: eur, status:status} = await redisClient.getEURfromRedis() //getEUR();
+    let {eur: eur, status:status} = await redisClient.getEURfromRedis()
     if(!status){
-        throw new Error('Problem with API Cryptocompare')
+        throw new Error('Problem with API Price Service')
     }
     if(concurrentTransactions === 0){
-        price['minPriceEUR'] = await trasformInEur(price.baseFee + price.maxPriorityFeePerGas, undefined, eur)
-        price['maxPriceEUR'] = await trasformInEur(price.maxFeePerGas, undefined, eur)
+        price['minPriceEUR'] = await transformInEur(price.baseFee + price.maxPriorityFeePerGas, undefined, eur)
+        price['maxPriceEUR'] = await transformInEur(price.maxFeePerGas, undefined, eur)
         return price;
     }
 
@@ -29,8 +29,8 @@ async function getAdjustedGasPriceBasedOnTransactionsConcurrency(price, concurre
         baseFee: baseFee,
         maxPriorityFeePerGas: maxPriorityFeePerGas,
         maxFeePerGas: maxFeePerGas,
-        minPriceEUR: await trasformInEur(baseFee + maxPriorityFeePerGas, undefined, eur),
-        maxPriceEUR: trasformInEur(maxFeePerGas, undefined, eur),
+        minPriceEUR: await transformInEur(baseFee + maxPriorityFeePerGas, undefined, eur),
+        maxPriceEUR: await transformInEur(maxFeePerGas, undefined, eur),
         estimatedTime: await estimateTransactionTime(fromGweiToWei(baseFee+maxPriorityFeePerGas))
     }
 
@@ -39,12 +39,11 @@ async function getAdjustedGasPriceBasedOnTransactionsConcurrency(price, concurre
 async function predictGasPrice(){
     try{
         const blockchainNameAndUrl = await getBlockchainNameAndUrl();
-        const gas = await getGas()
 
         if(blockchainNameAndUrl.blockchainName === "Ethereum Mainnet"){
-            return await etherscanGasPriceOracol(gas)
+            return await etherscanGasPriceOracol()
         }else{
-            return await owlracolGasPriceOracol(gas)
+            return await owlracolGasPriceOracol()
         }
     }catch (error) {
         appLogger.error({error:error}, "Oracols - Error while asking for gas price to the oracol");

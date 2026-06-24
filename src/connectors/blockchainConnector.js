@@ -10,13 +10,16 @@ async function getBlockchainNameAndUrl(){
     };
 }
 
+let defaultWeb3 = null;
+
 async function connectToBlockchain(blockchainURL){
     if(blockchainURL){
         return new Web3(blockchainURL);
-    }else{
-        return new Web3(await configurator.getConfig('blockchain.blockchainURL'));
     }
-
+    if(!defaultWeb3){
+        defaultWeb3 = new Web3(await configurator.getConfig('blockchain.blockchainURL'));
+    }
+    return defaultWeb3;
 }
 
 async function getSenderAddress(){
@@ -40,7 +43,7 @@ async function checkBlockchainConnection(){
     if(await web3.eth.net.isListening()){
         appLogger.info(undefined, "BLOCKCHAIN - Reachable")
     }else{
-        appLogger.alert("BLOCKCHAIN - Not reachable")
+        appLogger.warn("BLOCKCHAIN - Not reachable")
     }
 }
 

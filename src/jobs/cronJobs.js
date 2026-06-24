@@ -1,16 +1,31 @@
 const cron = require('node-cron');
 const redisClient = require('../services/redis/redisClient');
 const {cacheBCInfo} = require("./cachingBCJobs");
+const appLogger = require("../services/loggers/applogger");
 
 
-function startCronJob() {
-    cron.schedule('0 * * * * *', async () => {
-        await cacheBCInfo()
-    });
+async function runCacheBCInfo() {
+    try {
+        await cacheBCInfo();
+    } catch (error) {
+        appLogger.error({error}, "CRON - cacheBCInfo failed");
+    }
+}
 
-    cron.schedule('0 */15 * * * *', async () => {
+async function runEthPriceUpdate() {
+    try {
         await redisClient.saveOnRedisETHtoEUR();
-    });
+    } catch (error) {
+        appLogger.error({error}, "CRON - saveOnRedisETHtoEUR failed");
+    }
+}
+
+async function startCronJob() {
+    await runEthPriceUpdate();
+    await runCacheBCInfo();
+
+    cron.schedule('0 * * * * *', runCacheBCInfo);
+    cron.schedule('0 */15 * * * *', runEthPriceUpdate);
 }
 
 

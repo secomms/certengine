@@ -1,5 +1,5 @@
 const {MktreeManagement} = require("../models/mktreeManagement");
-const {CertificationQueueManagement} = require("../models/certQueueManagement");
+const {CertQueueManagement} = require("../models/certQueueManagement");
 
 const appLogger = require("../services/loggers/applogger");
 
@@ -10,7 +10,7 @@ const {handlerErrorRequest} = require("../responseHandlers/handlerErrorRequest")
 class DownloadController {
     constructor() {
         this.treeManager = new MktreeManagement();
-        this.queueManager = new CertificationQueueManagement();
+        this.queueManager = new CertQueueManagement();
     }
     async #getAllProofs(queueDoc){
         const tree = await this.treeManager.getTree(queueDoc.treeID);
@@ -26,8 +26,12 @@ class DownloadController {
             if(!queueDoc){
                 return res.status(404).json(handlerErrorRequest({message:"Ticket invalid or expired"}));
             }
-            const docsIDs = queueDoc.queue.map(item => item.id);
 
+            if(!queueDoc.blockchainData?.transactionHash || !queueDoc.treeID){
+                return res.status(409).json(handlerErrorRequest({message:"Ticket not certified yet"}));
+            }
+
+            const docsIDs = queueDoc.queue.map(item => item.id);
             const hashAlgo = queueDoc.hashAlgo;
             const proofs = await this.#getAllProofs(queueDoc);
             const fullProofs = proofs.map(((item,index) => {
@@ -62,8 +66,11 @@ class DownloadController {
             if(!queueDoc){
                 return res.status(404).json(handlerErrorRequest({message:"Ticket invalid or expired"}));
             }
-            await this.treeManager.deleteTree(queueDoc.treeID)
+            if(!queueDoc.readyForDeletion){
+                return res.status(409).json(handlerErrorRequest({message:"Proof must be downloaded before the certified data can be deleted"}));
+            }
             await this.queueManager.deleteQueue(ticket, owner);
+            await this.treeManager.deleteTree(queueDoc.treeID)
             return res.status(200).json(handlerSuccessRequest());
         }catch(error){
             appLogger.error({context:{owner:owner, ticket:ticket}, error:error},'Error while deleting certifiedData');

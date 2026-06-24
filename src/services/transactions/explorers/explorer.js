@@ -1,9 +1,10 @@
-const {connectToBlockchain} = require("../../../connectors/blockchainConnector");
+const {connectToBlockchain, getSenderAddress} = require("../../../connectors/blockchainConnector");
 
 
-async function getNonceFromBCForRedis(senderAddress){
+async function getNonceFromBCForRedis(){
+    const address = await getSenderAddress()
     const web3 = await connectToBlockchain();
-    let nonce = await web3.eth.getTransactionCount(senderAddress, 'latest')
+    let nonce = await web3.eth.getTransactionCount(address, 'latest')
     return Number(nonce)
 }
 
