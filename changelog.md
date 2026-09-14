@@ -2,7 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
-## [1.0.0] — 2026-06-24
+## [0.2.0] — 2026-09-14
+
+- **Infisical Vault EU region support**: `VAULT_INSTANCE_LOCATION='EU'` routes secret retrieval to the Infisical EU instance (`https://eu.infisical.com`); empty/unset keeps the US default.
+
+## [0.1.0] — 2026-06-24
 
 Initial release.
 

@@ -42,6 +42,7 @@ class Configurator {
                 process.env.VAULT_CLIENT_ID,
                 process.env.VAULT_CLIENT_SECRET,
                 process.env.VAULT_PROJECT_ID,
+                process.env.VAULT_INSTANCE_LOCATION,
                 process.env.NODE_ENV
             );
             secrets = await v2.getSecrets();

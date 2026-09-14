@@ -91,7 +91,6 @@ app.use(prometheusMiddleware({
 }));
 
 
-// Rotte
 const servicesRouter = require('./routes/certRoutes');
 const statsRouter = require('./routes/statsRoutes');
 const metricsRouter = require('./routes/metricsRoutes');
